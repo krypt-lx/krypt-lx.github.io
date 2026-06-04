@@ -114,7 +114,7 @@
       display: flex; 
       justify-content: space-between; 
       font-size: 0.95rem; 
-      padding: 10px 0; 
+      padding: 8px 0; 
       border-bottom: 1px solid var(--border); 
     }
     .output-row:last-child { border-bottom: none; }
@@ -128,14 +128,24 @@
       margin: 12px 0;
       grid-column: span 2; /* Spans both columns of the parent grid */
     }
-
+    .description {
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      line-height: 1.5;
+      margin-bottom: 1.5rem;
+      margin-left: auto;
+      margin-right: auto;
+    }
   </style>
 </head>
 <body>
 
   <div class="card">
     <h2>Factorio: Space Exploration - Steam Battery Calculator</h2>
-    
+    <p class="description">
+	This tool calculates parameters of Steam Battery, intended to power your base and last over night
+    </p>
     <div class="layout-grid">
       <div class="input-col">
         <form id="se-calc-form">
