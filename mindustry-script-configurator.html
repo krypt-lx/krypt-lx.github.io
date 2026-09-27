@@ -1,0 +1,1388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>MLog Configurator</title>
+<style>
+:root{--bg:#14161a;--panel:#1c2027;--panel2:#232833;--line:#2e3440;--text:#d5dbe8;--muted:#828b9e;--accent:#ff9f43;--ok:#4cd97b;--warn:#e5b567}
+*{box-sizing:border-box}
+/* Scrollbars in the panel, the preview and the open combo list: dark and thin, so they
+   read as part of the chrome instead of a bright OS strip. The standard properties cover
+   Firefox; the ::-webkit- rules cover Chromium/Edge. The transparent border plus
+   background-clip insets the thumb, giving it breathing room inside the track. */
+*{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--line);border:2px solid transparent;border-radius:6px;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:var(--muted);border:2px solid transparent;border-radius:6px;background-clip:content-box}
+::-webkit-scrollbar-corner{background:transparent}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,"Segoe UI",sans-serif;display:flex;flex-direction:column}
+header{display:flex;align-items:center;gap:12px;padding:10px 16px;background:var(--panel);border-bottom:1px solid var(--line)}
+h1{font-size:15px;margin:0;font-weight:600}
+select{margin-left:auto;background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:6px;padding:5px 8px;font:inherit}
+main{flex:1;display:flex;min-height:0}
+#params{width:370px;overflow-y:auto;background:var(--panel);border-right:1px solid var(--line);padding:14px 16px 24px}
+.panebar{display:flex;align-items:center;justify-content:space-between;padding:8px 14px;font-size:10.5px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted)}
+#params .panebar{border-bottom:1px solid var(--line);margin:-14px -16px 14px;padding-left:16px;padding-right:16px}
+#outwrap{flex:1;display:flex;flex-direction:column;min-width:0;background:#101216}
+#outwrap .panebar{background:var(--panel2);border-bottom:1px solid var(--line)}
+pre#out{flex:1;margin:0;padding:14px 16px;overflow:auto;font:13px/1.5 ui-monospace,Consolas,monospace;color:#b9c3d8;white-space:pre}
+/* Preview is one block per line so a single changed line can be flashed. min-height
+   keeps blank lines from collapsing to zero; max-content width keeps long lines
+   scrollable and lets a short line's highlight span the full row. */
+#out .ln{min-height:1.5em;width:max-content;min-width:100%;border-radius:2px}
+/* An ordinary edit: a transient flash that fades back to nothing. */
+#out .ln.hit{animation:lineflash .7s ease-out}
+@keyframes lineflash{from{background:rgba(255,159,67,.32)}to{background:transparent}}
+/* An import gets its own animation, separate from the flash above. It lights up and settles
+   on the held colour, and `forwards` keeps it there while the paste awaits Confirm or
+   Decline. A line carries `held` or `hit`, never both, and there is no transition anywhere,
+   so exactly one thing writes `background` and nothing can fight the animation. */
+#out .ln.held{animation:importflash .7s ease-out forwards}
+@keyframes importflash{0%{background:rgba(255,159,67,.45)}100%{background:rgba(255,159,67,.22)}}
+@media (prefers-reduced-motion:reduce){
+  #out .ln.hit{animation:none}
+  /* Keep the steady highlight without the entry animation, so an import is still marked. */
+  #out .ln.held{animation:none;background:rgba(255,159,67,.22)}
+}
+button{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:6px;padding:4px 10px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.copied{border-color:var(--ok);color:var(--ok)}
+.field{margin-bottom:16px}
+.lab{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;margin-bottom:2px}
+.badge{font-size:9.5px;color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:0 5px;letter-spacing:.5px}
+.desc{font-size:11.5px;color:var(--muted);margin:0 0 6px}
+input[type=text],input[type=number],#form select{width:100%;background:#12151a;border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 8px;font:13px ui-monospace,Consolas,monospace}
+input:focus,#form select:focus{outline:none;border-color:var(--accent)}
+.arrrow{display:flex;align-items:center;gap:7px;margin-bottom:6px}
+.arrrow .idx{width:22px;text-align:right;color:var(--muted);font:11px ui-monospace,monospace;flex:none}
+.arrrow input,.arrrow select{flex:1}
+.arrrow .combo{flex:1;min-width:0}
+/* string field: a checkbox that decides whether the value is set at all, plus the content.
+   Unchecked disables the text area — there is nothing to type into an absent value. */
+.strwrap{display:flex;align-items:flex-start;gap:7px;width:100%}
+.strwrap .strbox{flex:none;margin:7px 0 0}
+.strwrap .strin{flex:1;min-width:0;resize:vertical;overflow:hidden;background:#12151a;border:1px solid var(--line);color:var(--text);border-radius:6px;padding:6px 8px;font:13px ui-monospace,Consolas,monospace;line-height:1.5}
+.strwrap .strin:focus{outline:none;border-color:var(--accent)}
+.strwrap .strin:disabled{opacity:.45;cursor:not-allowed}
+.arrrow .strwrap{flex:1;min-width:0}
+/* enum field: typeable input + one shared floating list. Matches float to the top on
+   typing and everything else stays listed below, so no option is ever hidden. */
+.combo{position:relative;display:flex;align-items:center;width:100%}
+.combo .comboin{flex:1;min-width:0;padding-right:22px}
+.combo .car{position:absolute;right:8px;color:var(--muted);pointer-events:none;font-size:10px}
+.combo.warn .comboin{border-color:var(--warn);color:var(--warn)}
+.combolist{position:fixed;z-index:60;background:var(--panel2);border:1px solid var(--line);border-radius:6px;box-shadow:0 10px 26px rgba(0,0,0,.5);max-height:230px;overflow-y:auto;font:12.5px/1.5 ui-monospace,Consolas,monospace;color:var(--text)}
+.combolist .opt{padding:3px 9px;cursor:pointer;white-space:nowrap}
+.combolist .opt.act{background:var(--accent);color:#14161a}
+.combolist .opt.cur{font-weight:600}
+.combolist .opt.unk{color:var(--warn)}
+.combolist .sep{height:1px;background:var(--line);margin:3px 0}
+.x{flex:none;width:24px;padding:3px 0;font-size:12px;line-height:1}
+.arrfoot{display:flex;align-items:center;gap:10px;margin-top:8px}
+.count{font-size:11.5px;color:var(--muted)}
+.warn{color:var(--warn);font-size:11.5px;display:none;margin-top:6px}
+/* ── import: paste settings back in ────────────────────────────────────────── */
+.acts{display:flex;gap:6px}
+#pasterow{display:none;margin:-2px 0 12px}
+#pasterow.on{display:block}
+#pasterow input{width:100%;background:#12151a;border:1px solid var(--accent);border-radius:6px;padding:6px 8px;font:12px ui-monospace,Consolas,monospace;color:var(--text)}
+#pasterow input:focus{outline:none}
+#pasterow .hint{font-size:11px;color:var(--muted);margin-top:5px}
+#pending{display:none;border:1px solid var(--accent);border-radius:6px;background:var(--panel2);padding:9px 11px;margin-bottom:14px}
+#pending.on{display:block}
+#pending .msg{font-size:12.5px;margin-bottom:8px}
+#pending .msg b{color:var(--accent)}
+#pending .msg .miss{color:var(--muted)}
+#pending .acts{justify-content:flex-end}
+#note{display:none;font-size:11.5px;color:var(--muted);margin:-6px 0 12px}
+#note.on{display:block}
+/* While a paste is pending the form shows the incoming values but cannot be edited until
+   the paste is confirmed or declined. Reset and the script picker stay usable: they rebuild
+   from defaults, which discards the pending paste. */
+#form.locked{opacity:.55}
+</style>
+</head>
+<body>
+<header>
+  <h1>MLog Configurator</h1>
+  <select id="script"></select>
+</header>
+<main>
+  <section id="params">
+    <div class="panebar">
+      <span>Parameters</span>
+      <span class="acts">
+        <button id="paste" title="fill the form from a pasted script">Paste settings</button>
+        <button id="reset" title="restore defaults">Reset</button>
+      </span>
+    </div>
+    <div id="pasterow">
+      <input id="pastebox" type="text" autocomplete="off" spellcheck="false" placeholder="click here, then Ctrl+V">
+      <div class="hint">Values are read from the <code>set</code> lines; everything else in the text is ignored. <b>Esc</b> closes.</div>
+    </div>
+    <div id="pending">
+      <div class="msg" id="pmsg"></div>
+      <div class="acts"><button id="pdecline">Decline</button><button id="pconfirm">Confirm</button></div>
+    </div>
+    <div id="note"></div>
+    <div id="form"></div>
+  </section>
+  <section id="outwrap">
+    <div class="panebar"><span>Generated script</span><button id="copy">Copy to clipboard</button></div>
+    <pre id="out"></pre>
+  </section>
+</main>
+
+<script>
+const TEMPLATES = {
+  "coretocontainer": {
+    "id": "coretocontainer",
+    "title": "CoreToContainer",
+    "params": [
+      {
+        "name": "item",
+        "var": "item",
+        "indent": "    ",
+        "max": 16,
+        "size": "variable",
+        "default": [
+          "@coal"
+        ],
+        "type": "item",
+        "description": "Items to deliver"
+      },
+      {
+        "name": "target_amount",
+        "default": "200",
+        "type": "int",
+        "description": "target amount of each item"
+      },
+      {
+        "name": "the_unit_type",
+        "default": "@poly",
+        "type": "unit",
+        "description": "carrier unit"
+      },
+      {
+        "name": "core_x",
+        "default": "125",
+        "type": "int",
+        "description": "Core location X"
+      },
+      {
+        "name": "core_y",
+        "default": "240",
+        "type": "int",
+        "description": "Core location Y"
+      },
+      {
+        "name": "park_x",
+        "default": "111",
+        "type": "int",
+        "description": "Parking spot X"
+      },
+      {
+        "name": "park_y",
+        "default": "220",
+        "type": "int",
+        "description": "Parking spot Y"
+      },
+      {
+        "name": "move_timeout",
+        "default": "45",
+        "type": "int",
+        "description": "seconds before a move is declared stuck"
+      },
+      {
+        "name": "pick_stall_max",
+        "default": "5",
+        "type": "int",
+        "description": "pickup: no-progress polls (~0.2 s each) => source empty"
+      },
+      {
+        "name": "drop_stall_max",
+        "default": "10",
+        "type": "int",
+        "description": "drop: no-progress polls => container full/unreachable"
+      },
+      {
+        "name": "the_container",
+        "default": "container1",
+        "type": "block",
+        "description": "Destination storage"
+      }
+    ],
+    "lines": [
+      "# ============================================================================\n#  core_to_container.mlog\n# ----------------------------------------------------------------------------\n#  Batch resource delivery: CORE -> CONTAINER via one bound courier unit.\n#\n#  behaviour\n#    - binds ONE unit of the configured type; units controlled by a player,\n#      a command or another processor are NEVER taken (checked on bind and\n#      continuously while working)\n#    - delivers a LIST of items (item0..item15 in CONFIG, zero-terminated:\n#      first null slot ends the list; length auto-detected at init). All\n#      slots share target_amount as their container level threshold.\n#    - every trip loads a MAX batch (full cargo capacity) of ONE item and\n#      drops it all; partial-batch trips never happen (an item is only\n#      selected when the core holds a full batch of it)\n#    - at IDLE, the first slot whose container level < target becomes the\n#      remembered trip item; at the core the remembered item is checked\n#      first, else both sides are re-walked (first missing slot with a full\n#      core batch wins). Nothing shippable but some slot short -> wait at\n#      the core and retry each pass. No missing slots at all -> complete.\n#    - when done: unit moves to the parking spot, control is released\n#      (ucontrol unbind); the script keeps monitoring and re-dispatches if\n#      any level falls below target again -- preferring to re-bind the very\n#      same unit it used before (matched by unit reference)\n#    - stolen-unit detection: if a player/command/other processor takes our\n#      unit mid-job, the event is logged to message2 and the claim released\n#\n#  blocks (names are unique per team -> each instance needs its own set;\n#  edit CONFIG below for extra instances)\n#    container1   delivery destination (container or vault, any size)\n#    message1     step/state readout   (state change + refresh every 5 s)\n#    message2     event/debug log      (bind / steal / stall / errors)\n#    illuminator1 status light, OPTIONAL:\n#                 green = idle/target met | blue = delivering\n#                 yellow = waiting for source at core | red = error\n#\n#  notes\n#    - target_amount is a shared container LEVEL threshold, not a one-shot\n#      count: if any slot drains below it again, delivery resumes.\n#    - keep target_amount <= container capacity of each item; otherwise the\n#      drop phase stalls (detected + logged) and the unit parks with cargo.\n#    - core_x/core_y must point at the CORE block itself (any variant). The\n#      block reference is resolved at runtime via ucontrol getBlock from the\n#      bound unit -- ulocate is unreliable (field notes), so it is not used.\n#      No core found on arrival -> TERMINAL CORE_NOT_FOUND state (red light +\n#      message1, unit released) - fix coordinates and reload the script.\n#    - works on any processor; a logic processor gives comfortable headroom.\n# ============================================================================\n\n# ----------------------------------------------------------------------------\n#  CONFIG -- edit per instance (executed once, first pass only)\n# ----------------------------------------------------------------------------\nstart:\n    jump main_loop equal initialized true\n    set initialized true\n\n    # --- delivery parameters ------------------------------------\n    # Item list, zero-terminated: the first null slot ends the list; its\n    # length is auto-detected at init (no count variable). All slots share\n    # target_amount. Unused trailing slots stay null.",
+      "    # Items to deliver",
+      {
+        "a": "item"
+      },
+      "\n    # container level threshold, shared by all items",
+      [
+        "    set target_amount ",
+        {
+          "p": "target_amount"
+        },
+        " # target amount of each item"
+      ],
+      [
+        "    set the_unit_type ",
+        {
+          "p": "the_unit_type"
+        },
+        " # carrier unit"
+      ],
+      [
+        "    set core_x ",
+        {
+          "p": "core_x"
+        },
+        " # Core location X"
+      ],
+      [
+        "    set core_y ",
+        {
+          "p": "core_y"
+        },
+        " # Core location Y"
+      ],
+      [
+        "    set park_x ",
+        {
+          "p": "park_x"
+        },
+        " # Parking spot X"
+      ],
+      [
+        "    set park_y ",
+        {
+          "p": "park_y"
+        },
+        " # Parking spot Y"
+      ],
+      "\n\n    # --- per-instance blocks ------------------------------------------\n    # the_container is REQUIRED: resolved from container1 in init; null drives st_cfgerr.\n    # message1 / message2 / illuminator1 are OPTIONAL and used directly by\n    # name at every use site - a block linked later is picked up\n    # automatically (each instruction re-resolves the name), and writing\n    # into an unlinked (null) ref is a no-op. Never cached, never checked.\n\n    # --- tuning -----------------------------------------------------",
+      [
+        "    set move_timeout ",
+        {
+          "p": "move_timeout"
+        },
+        " # seconds before a move is declared stuck"
+      ],
+      [
+        "    set pick_stall_max ",
+        {
+          "p": "pick_stall_max"
+        },
+        " # pickup: no-progress polls (~0.2 s each) => source empty"
+      ],
+      [
+        "    set drop_stall_max ",
+        {
+          "p": "drop_stall_max"
+        },
+        " # drop: no-progress polls => container full/unreachable"
+      ],
+      "\n# ----------------------------------------------------------------------------\n#  INIT -- full setup; also the retry entry point of st_cfgerr\n# ----------------------------------------------------------------------------\ninit:\n    # --- resolve required block ref (null until linked) -----------------",
+      [
+        "    set the_container ",
+        {
+          "p": "the_container"
+        },
+        " # Destination storage"
+      ],
+      "\n    # --- state constants (FSM values; defined before first use)------\n    set st_idle 10 # idle / target met\n    set st_tocore 20 # traveling to core\n    set st_pickup 30 # loading max batch at core\n    set st_waitsrc 40 # waiting for source at core\n    set st_tocont 50 # traveling to container\n    set st_drop 60 # unloading at container\n    set st_park 70 # parking + release\n    set st_cfgerr 90 # invalid config: report, wait, re-run init\n    set st_coreerr 95 # core not found at configured coords (terminal)\n    set state st_idle # current FSM state\n    set the_unit null # bound unit reference (null = none)\n    set saved_unit_ref null # our last unit ref (reuse preference)\n    set saved_ok false # true => saved_unit_ref valid, try to re-bind it\n    set trips_done 0 # completed drop legs\n    set cycle 0 # pass counter (debug)\n    set vb_counter 10 # validate_bind throttle countdown\n    set err_until 0 # @second until which the light flashes red\n    set last_step_t 0 # last step-line flush time\n    set last_state st_idle # matches initial state -> no duplicate line\n    set state_name \"BOOT\" # label shown in message1\n    set last_nf_t 0 # throttle: no-free-unit notice\n    set trip_item null # item selected for the current trip (null = none yet)\n    set trip_slot null # slot index of trip_item\n\n    # --- item list length detection (zero-terminated scan) --------------\n    set idx 0\n    set item_count 0\nscan_next:\n    jump scan_done greaterThanEq idx 16 # hard cap: the list has at most 16 slots\n    set ret @counter\n    jump get_item always\n    op equal slot_null result null # resume; is this slot unused?\n    jump scan_done equal slot_null true\n    op add item_count item_count 1\n    op add idx idx 1\n    jump scan_next always\nscan_done:\n    jump init_items_ok greaterThan item_count 0\n    print \"WARNING: no delivery slots configured (item0..item15 all null)\"\n    printflush message2\ninit_items_ok:\n\n    # --- status light palette (light optional; null writes are no-ops) --\n    packcolor col_idle 0.25 0.85 0.35 1 # green : idle / target met\n    packcolor col_work 0.25 0.55 1.00 1 # blue : delivering\n    packcolor col_wait 1.00 0.80 0.10 1 # yellow: waiting for source\n    packcolor col_error 1.00 0.15 0.15 1 # red : error flash\n    set cur_col col_idle\n\n    # --- config sanity (only the required block is checked) --------------\n    jump init_cfg_ok notEqual the_container null\n    set state st_cfgerr\n    jump main_loop always\ninit_cfg_ok:\n    # --- clear message blocks on boot -----------------------------------\n    print \"\"\n    printflush message1\n    print \"\"\n    printflush message2\n\n    print \"boot: \"\n    print item_count\n    print \" delivery slot(s), first=\"\n    print item0\n    print \" from core(\"\n    print core_x\n    print \",\"\n    print core_y\n    print \") to \"\n    print the_container\n    print \" target=\"\n    print target_amount\n    printflush message1\n    set last_step_t @second\n    jump main_loop always\n\n# ----------------------------------------------------------------------------\n#  MAIN LOOP -- one pass per processor cycle batch\n# ----------------------------------------------------------------------------\nmain_loop:\n    op add cycle cycle 1\n\n    # --- FSM dispatch -----------------------------------------------------------------\n    jump s_idle equal state st_idle\n    jump s_tocore equal state st_tocore\n    jump s_pickup equal state st_pickup\n    jump s_waitsrc equal state st_waitsrc\n    jump s_tocont equal state st_tocont\n    jump s_drop equal state st_drop\n    jump s_park equal state st_park\n    jump s_cfgerr equal state st_cfgerr\n    jump s_coreerr equal state st_coreerr\n    set state st_idle # unknown state -> safe reset\n    jump s_idle always\n\n# ----------------------------------------------------------------------------\n#  STATE: IDLE -- select the trip item (Walk A), then ensure a unit is bound\n# ----------------------------------------------------------------------------\ns_idle:\n    jump idle_color_done equal cur_col col_wait # still waiting for a free unit -> stay yellow\n    set cur_col col_idle\nidle_color_done:\n    set state_name \"IDLE\"\n    # --- reset trip memory on IDLE entry (nothing stale across trips) --\n    set trip_item null\n    set trip_slot null\n    set ret @counter\n    jump do_status always\n    # --- (returned) status applied; decide whether work is needed ----\n    # --- Walk A: first slot below target becomes the remembered item ----\n    jump s_idle_end equal item_count 0 # degenerate config; warned at boot, stay quiet\n    set idx 0\nidle_wa_loop:\n    jump deliver_complete greaterThanEq idx item_count # no missing slots -> complete\n    set ret @counter\n    jump get_item always\n    op equal slot_null result null # resume; defensive (walk is count-bounded)\n    jump idle_wa_next equal slot_null true\n    sensor have_now the_container result\n    jump idle_wa_next greaterThanEq have_now target_amount # satisfied -> skip\n    set trip_item result # first missing slot -> remembered for this trip\n    set trip_slot idx\n    jump idle_work always\nidle_wa_next:\n    op add idx idx 1\n    jump idle_wa_loop always\nidle_work:\n    # --- work needed: ensure a unit is bound ----------------------------\n    jump idle_bound notEqual the_unit null\n    set ret @counter\n    jump bind_scan always\n    # --- (returned) scan failed => no free unit right now, retry next pass\n    jump idle_nofree equal the_unit null\n    set state st_tocore # bound -> dispatch\n    jump s_idle_end always\nidle_nofree:\n    set cur_col col_wait # unexpected delay: waiting for a free unit -> yellow\n    op add nf_due last_nf_t 10\n    jump s_idle_end lessThan @second nf_due\n    set last_nf_t @second\n    print \"no free \"\n    print the_unit_type\n    print \" unit available\"\n    printflush message2\n    jump s_idle_end always\nidle_bound:\n    # already bound (e.g. returning from a stuck move) -> resume work\n    set vb_ret @counter\n    jump validate_bind always\n    set state st_tocore\ns_idle_end:\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\n#  STATE: TO_CORE -- travel to the configured core position\n# ----------------------------------------------------------------------------\ns_tocore:\n    set cur_col col_work\n    set state_name \"TO_CORE\"\n    set ret @counter\n    jump do_status always\n    # --- (returned) status applied; travel to the configured core ----\n    set dest_x core_x\n    set dest_y core_y\n    op add move_dead @second move_timeout\n    set ret @counter\n    jump move_to always\n    # --- (returned: arrived at the core)\n    set state st_pickup\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\n#  STATE: PICKUP -- resolve core block ref, unload leftover cargo to the core,\n#                    then load a MAX batch (full cargo)\n# ----------------------------------------------------------------------------\ns_pickup:\n    set cur_col col_work\n    set state_name \"PICKUP\"\n    set ret @counter\n    jump do_status always\n    # --- (returned) status applied; resolve core ref, load a MAX batch ----\n    # --- resolve the core block reference from the bound unit (unit is at core)\n    ucontrol getBlock core_x core_y blk_type the_core blk_floor\n    jump pickup_bad equal blk_type null\n    jump pickup_bad equal blk_type @solid\n    # --- select this trip's item (remembered first, else re-walk) --------\n    set ret @counter\n    jump select_at_core always\n    # --- (returned) selection done ---------------------------------------\n    jump pu_wait notEqual sel_found true # nothing shippable right now\n    # --- (sel_found) unload leftover cargo to the core BEFORE picking new --\n    sensor cap_now the_unit @itemCapacity\n    sensor cargo_item the_unit @firstItem # item type aboard (null when empty)\n    set cnt 0 # pre-reset - sensor with null property does nothing\n    sensor cnt the_unit cargo_item        # current amount of it\n    jump pu_drop_done equal cnt 0 # nothing aboard -> straight to picking\n    set last_cnt cnt\n    set drop_stalls 0\npu_drop_loop:\n    ucontrol itemDrop the_core cap_now\n    wait 0.2\n    sensor cargo_item the_unit @firstItem # item type aboard (null when empty)\n    set cnt 0 # pre-reset - sensor with null property does nothing\n    sensor cnt the_unit cargo_item        # current amount of it\n    op sub diff cnt last_cnt\n    jump pu_drop_prog lessThan diff 0\n    op add drop_stalls drop_stalls 1\npu_drop_prog:\n    set last_cnt cnt\n    jump pu_drop_done equal cnt 0\n    jump pu_drop_giveup greaterThanEq drop_stalls drop_stall_max\n    jump pu_drop_loop always\npu_drop_giveup:\n    print \"leftover cargo could not be dropped to core - continuing\"\n    printflush message2\npu_drop_done:\n    sensor cargo_item the_unit @firstItem # item type aboard (null when empty)\n    set last_cnt 0 # pre-reset - sensor with null property does nothing\n    sensor last_cnt the_unit cargo_item   # current amount of it\n    set pick_stalls 0\npickup_loop:\n    set vb_ret @counter\n    jump validate_bind always\n    sensor cap_now the_unit @itemCapacity\n    jump pickup_plateau greaterThanEq last_cnt cap_now\n    ucontrol itemTake the_core trip_item cap_now\n    wait 0.2\n    sensor cargo_item the_unit @firstItem # item type aboard (null when empty)\n    set cnt 0 # pre-reset - sensor with null property does nothing\n    sensor cnt the_unit cargo_item        # current amount of it\n    op sub diff cnt last_cnt\n    jump pickup_prog greaterThan diff 0\n    op add pick_stalls pick_stalls 1\npickup_prog:\n    set last_cnt cnt\n    jump pickup_plateau greaterThanEq pick_stalls pick_stall_max\n    jump pickup_loop always\npickup_bad:\n    # no core at configured coords -> unrecoverable error state (D20)\n    set state st_coreerr\n    jump pass_end always\npickup_plateau:\n    # cargo full, or source exhausted (no progress for ~1 s)\n    sensor cargo_item the_unit @firstItem # item type aboard (null when empty)\n    set cnt 0 # pre-reset - sensor with null property does nothing\n    sensor cnt the_unit cargo_item        # current amount of it\n    jump pickup_empty equal cnt 0 # nothing picked up -> wait at core\n    set state st_tocont # cargo aboard -> deliver it\n    jump pass_end always\npickup_empty:\n    set state st_waitsrc # nothing to carry yet\n    jump pass_end always\npu_wait:\n    # (from select_at_core) no shippable item right now\n    jump deliver_complete equal any_short false # no missing slots -> complete\n    set state st_waitsrc # some slot short, core empty for it -> retry each pass\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\n#  STATE: WAIT_SOURCE -- parked at the core until it has something to ship\n# ----------------------------------------------------------------------------\ns_waitsrc:\n    set cur_col col_wait\n    set state_name \"WAIT_SOURCE\"\n    set ret @counter\n    jump do_status always\n    # --- (returned) status applied; wait at core for something to ship ----\n    set vb_ret @counter\n    jump validate_bind always\n    # --- (re)resolve the core reference if we do not have one yet\n    jump ws_have_ref notEqual the_core null\n    ucontrol getBlock core_x core_y blk_type the_core blk_floor\n    jump ws_bad equal blk_type null\n    jump ws_bad equal blk_type @solid\nws_have_ref:\n    # --- select this trip's item (remembered first, else re-walk) --------\n    set ret @counter\n    jump select_at_core always\n    # --- (returned) selection done ---------------------------------------\n    jump ws_wait notEqual sel_found true # nothing shippable right now\n    set state st_pickup # shippable item found -> load it\n    jump pass_end always\nws_wait:\n    jump deliver_complete equal any_short false # no missing slots -> complete\n    # nothing shippable yet; stay, select_at_core retries each pass\n    jump pass_end always\nws_bad:\n    # no core ref / not found -> unrecoverable error state (D20)\n    set state st_coreerr\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\n#  STATE: TO_CONTAINER -- travel to the destination storage block\n# ----------------------------------------------------------------------------\ns_tocont:\n    set cur_col col_work\n    set state_name \"TO_CONTAINER\"\n    set ret @counter\n    jump do_status always\n    # --- (returned) status applied; travel to destination storage ----\n    sensor dest_x the_container @x\n    sensor dest_y the_container @y\n    op add move_dead @second move_timeout\n    set ret @counter\n    jump move_to always\n    # --- (returned: arrived at the container)\n    set state st_drop\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\n#  STATE: DROP -- unload everything, then check the target level\n# ----------------------------------------------------------------------------\ns_drop:\n    set cur_col col_work\n    set state_name \"DROP\"\n    set ret @counter\n    jump do_status always\n    # --- (returned) status applied; unload everything ------------------\n    sensor cap_now the_unit @itemCapacity\n    sensor cargo_item the_unit @firstItem # item type aboard (null when empty)\n    set last_cnt 0 # pre-reset - sensor with null property does nothing\n    sensor last_cnt the_unit cargo_item   # current amount of it\n    jump drop_done equal last_cnt 0\n    set drop_stalls 0\ndrop_loop:\n    set vb_ret @counter\n    jump validate_bind always\n    ucontrol itemDrop the_container cap_now\n    wait 0.2\n    sensor cargo_item the_unit @firstItem # item type aboard (null when empty)\n    set cnt 0 # pre-reset - sensor with null property does nothing\n    sensor cnt the_unit cargo_item        # current amount of it\n    op sub diff cnt last_cnt\n    jump drop_prog lessThan diff 0\n    op add drop_stalls drop_stalls 1\ndrop_prog:\n    set last_cnt cnt\n    jump drop_done equal last_cnt 0\n    jump drop_stalled greaterThanEq drop_stalls drop_stall_max\n    jump drop_loop always\ndrop_stalled:\n    # container full/unreachable -- keep cargo, bring the unit home\n    op add err_tmp @second 3\n    set err_until err_tmp\n    print \"DROP STALLED - container full or unreachable? cargo kept in unit\"\n    printflush message2\n    set state st_park\n    jump pass_end always\ndrop_done:\n    op add trips_done trips_done 1\n    set state st_idle # completion is decided by the IDLE walk (multi-item)\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\n#  STATE: PARK_RELEASE -- move to the parking spot and hand back control\n#    saved_ok/saved_unit_ref are kept on purpose: next dispatch re-binds this unit first\n# ----------------------------------------------------------------------------\ns_park:\n    set cur_col col_idle\n    set state_name \"PARK_RELEASE\"\n    set ret @counter\n    jump do_status always\n    # --- (returned) status applied; move to parking spot, release ----\n    jump park_inplace equal park_x null\n    set dest_x park_x\n    set dest_y park_y\n    op add move_dead @second move_timeout\n    set ret @counter\n    jump move_to always\npark_inplace:\n    # release control; unit stays where it is (parking spot or in place)\n    ucontrol idle\n    ucontrol unbind\n    print \"unit parked & released\"\n    printflush message2\n    set the_unit null # keep saved_ok/saved_unit_ref -> reuse next time\n    set state st_idle\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\n#  STATE: CONFIG_ERROR -- container1 not linked. NOT terminal: report, wait,\n#    re-run init; recovery happens through init's sanity check when the link\n#    appears (no reload needed). Optional blocks are never checked here.\n# ----------------------------------------------------------------------------\ns_cfgerr:\n    control color illuminator1 col_error # red while waiting (null-safe)\n    print \"CONFIG ERROR: container1 not linked - link it, no reload needed\"\n    printflush message1\n    wait 3\n    jump init always\n\n# ----------------------------------------------------------------------------\n#  STATE: CORE_NOT_FOUND -- core block missing at configured coords. TERMINAL /\n#    unrecoverable: nothing can fix this at runtime (the coordinates point at\n#    nothing; only a coordinate fix + script reload helps). Stays here forever,\n#    re-asserting the indication every ~3 s; the bound unit is released on entry\n#    so a dead script holds no unit.\n# ----------------------------------------------------------------------------\ns_coreerr:\n    control color illuminator1 col_error # red, persistent (null-safe)\n    print \"CORE NOT FOUND at (\"\n    print core_x\n    print \",\"\n    print core_y\n    print \") - fix coordinates and reload\"\n    printflush message1\n    jump ce_done equal the_unit null\n    ucontrol idle\n    ucontrol unbind\n    set the_unit null\nce_done:\n    wait 3\n    jump main_loop always\n\n# ----------------------------------------------------------------------------\n#  SUBROUTINE: move_to -- travel the bound unit to (dest_x, dest_y)\n#    inputs : dest_x dest_y move_dead (@second deadline set by caller)\n#    returns: on arrival via ret; on stuck -> logs, idles unit, state=s_idle,\n#             jumps pass_end (does NOT return to the caller)\n# ----------------------------------------------------------------------------\nmove_to:\n    ucontrol move dest_x dest_y\nmove_poll:\n    set vb_ret @counter\n    jump validate_bind always\n    ucontrol within dest_x dest_y 6 arrived\n    jump move_done equal arrived true\n    jump move_stuck greaterThan @second move_dead\n    wait 0.2\n    jump move_poll always\nmove_done:\n    op add @counter ret 1\nmove_stuck:\n    # path blocked or destination unreachable for move_timeout seconds\n    sensor ux the_unit @x\n    sensor uy the_unit @y\n    op floor ux ux\n    op floor uy uy\n    print \"STUCK moving to (\"\n    print dest_x\n    print \",\"\n    print dest_y\n    print \") at (\"\n    print ux\n    print \",\"\n    print uy\n    print \") - check path/config\"\n    printflush message2\n    op add err_tmp @second 3\n    set err_until err_tmp\n    ucontrol idle\n    set state st_idle\n    set state_name \"IDLE\"\n    set cur_col col_idle\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\n#  SUBROUTINE: validate_bind -- verify we still own the bound unit (throttled)\n#    failure paths jump to stolen_* handlers and never return to the caller\n# ----------------------------------------------------------------------------\nvalidate_bind:\n    op sub vb_counter vb_counter 1\n    jump vb_ok greaterThan vb_counter 0\n    set vb_counter 10\n    sensor dead_now the_unit @dead\n\tsensor ctrl_by the_unit @controller\n\tjump stolen_dead equal the_unit null\n\tjump stolen_dead equal dead_now true\n\top equal is_ours ctrl_by @this\n\tjump vb_ok equal is_ours true\n\tsensor ctrl_type the_unit @controlled\n\tjump stolen_other equal ctrl_type @ctrlProcessor\n\tjump stolen_human always\nvb_ok:\n\top add @counter vb_ret 1\n\nstolen_dead:\n    print \"unit lost (dead/gone) - releasing claim\"\n    printflush message2\n    set the_unit null\n    set saved_ok false\n    jump stolen_common always\nstolen_human:\n    # player/command took it over -> release our claim (corpus convention)\n    print \"control taken by PLAYER/COMMAND on unit \"\n    print the_unit\n    print \" - releasing claim\"\n    printflush message2\n    ucontrol idle\n    ucontrol unbind\n    set the_unit null\n    set saved_ok false\n    jump stolen_common always\nstolen_other:\n    # another processor controls it -> NO writes (would be retaliation-steal)\n    print \"unit \"\n    print the_unit\n    print \" taken over by ANOTHER PROCESSOR - releasing claim, no commands sent\"\n    printflush message2\n    set the_unit null\n    set saved_ok false\nstolen_common:\n    op add err_tmp @second 3\n    set err_until err_tmp\n    set state st_idle\n    set state_name \"IDLE\"\n    set cur_col col_idle\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\n#  SUBROUTINE: bind_scan -- acquire a courier unit without stealing anyone's\n#    each pass calls ubind repeatedly; stops when no unit comes back at all\n#    or the same unit repeats in this attempt (nothing new will come after)\n#    pass 1: look for our previous unit (ref match) -> reuse it\n#    pass 2: take the first free (uncontrolled, alive) unit of the type\n#    dead or foreign-controlled candidates are skipped WITHOUT sending them\n#    any ucontrol command (binding alone never seizes control)\n#    success => the_unit set, saved_ok true ; failure => the_unit null\n# ----------------------------------------------------------------------------\nbind_scan:\n    jump bs_pass2 equal saved_ok false\n    set prev_cand null\nbs_p1_loop:\n    ubind the_unit_type\n    set cand @unit\n    jump bs_pass2 equal cand null # no unit of this type at all -> stop\n    op equal dup cand prev_cand # same unit twice in this attempt -> nothing new will come\n    jump bs_pass2 equal dup true\n    set prev_cand cand\n    sensor cand_dead cand @dead\n    jump bs_p1_loop equal cand_dead true\n    sensor cand_ctrl cand @controlled\n    jump bs_p1_loop notEqual cand_ctrl 0\n    op equal is_match cand saved_unit_ref\n    jump bs_p1_loop equal is_match false\n    # --- found our previous unit, alive and free -----------------------\n    set the_unit cand\n    set saved_ok true\n    print \"rebound previous unit \"\n    print cand\n    printflush message2\n    jump bs_ok always\nbs_pass2:\n    set prev_cand null\nbs_p2_loop:\n    ubind the_unit_type\n    set cand @unit\n    jump bs_fail equal cand null # no unit of this type at all -> stop\n    op equal dup cand prev_cand # same unit twice in this attempt -> nothing new will come\n    jump bs_fail equal dup true\n    set prev_cand cand\n    sensor cand_dead cand @dead\n    jump bs_p2_loop equal cand_dead true\n    sensor cand_ctrl cand @controlled\n    jump bs_p2_loop notEqual cand_ctrl 0\n    set the_unit cand\n    set saved_unit_ref cand\n    set saved_ok true\n    print \"bound unit \"\n    print cand\n    printflush message2\nbs_ok:\n    op add @counter ret 1\nbs_fail:\n    set the_unit null\n    op add @counter ret 1\n\n# ----------------------------------------------------------------------------\n#  SUBROUTINE: do_status -- apply step readout + status light for the current\n#    state. Called at the TOP of every state block (after cur_col/state_name\n#    are set, before any blocking work) so message1 and the light always show\n#    the state that is actually running now -- not the one that just finished.\n#    step line flushes on state change or every 5 s; error flash overrides colour\n# ----------------------------------------------------------------------------\ndo_status:\n    # --- status light (error flash overrides state colour) --------------------------\n    jump ds_no_err greaterThanEq @second err_until\n    set cur_col col_error\nds_no_err:\n    control color illuminator1 cur_col # optional block; null writes are no-ops\n    # --- step readout (message1): flush on state change or every 5 s -------------\n    op add step_due last_step_t 5\n    jump ds_flush notEqual state last_state # state changed -> flush now\n    jump ds_flush greaterThanEq @second step_due # 5 s elapsed -> refresh\nds_skip:\n    op add @counter ret 1\nds_flush:\n    set last_state state\n    set last_step_t @second\n    print \"step: \"\n    print state_name\n    print \" | trips=\"\n    print trips_done\n    print \" | item=\"\n    print trip_item\n    print \"[\"\n    print trip_slot\n    print \"] of \"\n    print item_count\n    jump ds_noitem equal trip_item null # no active item -> skip have readout\n    set have_now 0 # pre-reset: sensor with null resource would leave stale value\n    sensor have_now the_container trip_item\n    print \" | have=\"\n    print have_now\n    print \"/\"\n    print target_amount\nds_noitem:\n    printflush message1\n    op add @counter ret 1\n\n# ----------------------------------------------------------------------------\n#  SUBROUTINE: get_item -- array-sim GET accessor for the item list (read-only)\n#    in : idx (slot index 0..15)   out: result (= item<idx>)\n#    call convention: set ret @counter ; jump get_item always\n#    Layout: prologue is exactly 6 instructions; base capture makes edits\n#    ABOVE this block safe - never insert/remove lines INSIDE the table.\n#    Positions are relative to getBase only (element k = getBase + 2k); no absolute indexes.\n# ----------------------------------------------------------------------------\nget_item:\n    jump item_oob lessThan idx 0 # bounds low (null idx behaves as 0)\n    jump item_oob greaterThanEq idx 16 # bounds high\n    op add getBase @counter 3 # base capture -> first table line\n    op mul t2 idx 2 # stride: 2 instructions per slot\n    op add target getBase t2 # target address for this slot\n    op add @counter target 0 # computed goto into the table\n    set result item0 # = getBase + 0\n    op add @counter ret 1 # return\n    set result item1 # = getBase + 2\n    op add @counter ret 1 # return\n    set result item2 # = getBase + 4\n    op add @counter ret 1 # return\n    set result item3 # = getBase + 6\n    op add @counter ret 1 # return\n    set result item4 # = getBase + 8\n    op add @counter ret 1 # return\n    set result item5 # = getBase + 10\n    op add @counter ret 1 # return\n    set result item6 # = getBase + 12\n    op add @counter ret 1 # return\n    set result item7 # = getBase + 14\n    op add @counter ret 1 # return\n    set result item8 # = getBase + 16\n    op add @counter ret 1 # return\n    set result item9 # = getBase + 18\n    op add @counter ret 1 # return\n    set result item10 # = getBase + 20\n    op add @counter ret 1 # return\n    set result item11 # = getBase + 22\n    op add @counter ret 1 # return\n    set result item12 # = getBase + 24\n    op add @counter ret 1 # return\n    set result item13 # = getBase + 26\n    op add @counter ret 1 # return\n    set result item14 # = getBase + 28\n    op add @counter ret 1 # return\n    set result item15 # = getBase + 30\n    op add @counter ret 1 # return\nitem_oob:\n    print \"get_item OOB idx=\"\n    print idx\n    printflush message2\n    op add @counter ret 1\n\n# ----------------------------------------------------------------------------\n#  SUBROUTINE: select_at_core -- pick the trip item while standing at the core\n#    in : the_core resolved, unit bound; trip_item/trip_slot may be stale\n#    out: sel_found true/false ; any_short true/false ; trip_item/trip_slot\n#         updated when a shippable slot is found\n#    Logic (spec): remembered item first if it has a full batch in core;\n#    else re-walk from slot 0 - the first missing slot with a full batch in\n#    core wins. Nothing shippable + some short -> caller waits and retries.\n# ----------------------------------------------------------------------------\nselect_at_core:\n    set sac_ret ret # preserve caller's return (inner get_item calls clobber ret)\n    set sel_found false\n    set any_short false\n    sensor cap_now the_unit @itemCapacity # live capacity, shared by all items\n    jump sac_walk equal trip_item null # nothing remembered -> straight to walk\n    sensor src_amt the_core trip_item\n    jump sac_use_mem greaterThanEq src_amt cap_now\nsac_walk:\n    set idx 0\nsac_loop:\n    jump sac_done greaterThanEq idx item_count\n    set ret @counter\n    jump get_item always\n    op equal slot_null result null # resume; defensive (walk is count-bounded)\n    jump sac_next_slot equal slot_null true\n    sensor have_now the_container result\n    jump sac_next_slot greaterThanEq have_now target_amount # satisfied -> skip\n    set any_short true\n    sensor src_amt the_core result\n    jump sac_found greaterThanEq src_amt cap_now # full batch + missing -> take it\nsac_next_slot:\n    op add idx idx 1\n    jump sac_loop always\nsac_use_mem:\n    set sel_found true # remembered item is shippable (trip_slot unchanged)\n    jump sac_done always\nsac_found:\n    set trip_item result\n    set trip_slot idx\n    set sel_found true\nsac_done:\n    op add @counter sac_ret 1\n\n# ----------------------------------------------------------------------------\n#  BLOCK: deliver_complete -- all slots satisfied: log the result; if a unit\n#    is bound, park & release it (st_park), else stay IDLE and keep monitoring\n#    for new demand. Ends at pass_end - does NOT return to the caller.\n# ----------------------------------------------------------------------------\ndeliver_complete:\n    set cur_col col_idle # all satisfied again -> green (clears nofree yellow)\n    print \"DELIVERY COMPLETE - \"\n    print trips_done\n    print \" trip(s) done\"\n    printflush message2\n    jump dc_park notEqual the_unit null\n    set state st_idle # nothing bound; keep monitoring for new demand\n    jump pass_end always\ndc_park:\n    set state st_park # park & release (s_park keeps saved ref for reuse)\n    jump pass_end always\n\n# ----------------------------------------------------------------------------\npass_end:\n    # (status visuals are applied at state entry via do_status; nothing else)\n    end"
+    ]
+  },
+  "factory1transfer": {
+    "id": "factory1transfer",
+    "title": "Factory1Transfer",
+    "params": [
+      {
+        "name": "item",
+        "var": "item",
+        "indent": "    ",
+        "max": 16,
+        "size": "variable",
+        "default": [
+          "@phase-fabric",
+          "@lead",
+          "@coal",
+          "@metaglass",
+          "@graphite",
+          "@silicon",
+          "@titanium"
+        ],
+        "type": "item",
+        "description": "Items to load"
+      },
+      {
+        "name": "amountToTest",
+        "default": "50",
+        "type": "int",
+        "description": "shared threshold for all slots"
+      },
+      {
+        "name": "minSrcAmount",
+        "default": "10",
+        "type": "int",
+        "description": "minimum reserve kept in src; 0 = drain to empty"
+      },
+      {
+        "name": "src_block",
+        "default": "vault1",
+        "type": "block",
+        "description": "source storage: where items come from"
+      },
+      {
+        "name": "dst_block",
+        "default": "container1",
+        "type": "block",
+        "description": "destination storage: delivery target"
+      }
+    ],
+    "lines": [
+      "# ============================================================================\n#  factory1_transfer.mlog\n# ----------------------------------------------------------------------------\n#  Factory 1 input picker: walks a configured list of candidate items and\n#  feeds the first acceptable one into all linked unloaders (getlink scan).\n#\n#  logic (unchanged from original)\n#    - each pass: if an item was selected before, re-test it first (sticky);\n#      on failure walk the whole list in slot order\n#    - TestResource passes when dst holds < amountToTest of the candidate\n#      AND src still holds more than minSrcAmount of it (reserve floor)\n#    - selection -> every linked @unloader gets config = item + enabled;\n#      no match -> resource null -> all unloaders disabled\n#\n#  configuration (same trick as CoreToContainer.txt)\n#    - item0..item15: zero-terminated candidate list, first null slot ends\n#      it; length auto-detected at init (no count variable to maintain).\n#      Walk order = slot order.\n#    - amountToTest: shared threshold for every slot\n#    - minSrcAmount: minimum reserve kept in src (0 = drain to empty)\n#    - src_block / dst_block: storage refs locked from linked block names at\n#      boot (vault1 = source, container1 = destination by default)\n# ============================================================================\n\nstart:\n    jump main equal initialized true\n    set initialized true\n\n    # --- CONFIG ------------------------------------------------------\n    # Candidate list, zero-terminated: first null slot ends the list; its\n    # length is auto-detected at init (no count variable). Unused trailing\n    # slots stay null. Walk order = slot order (0 first).",
+      "    # Items to load",
+      {
+        "a": "item"
+      },
+      [
+        "    set amountToTest ",
+        {
+          "p": "amountToTest"
+        },
+        " # shared threshold for all slots"
+      ],
+      [
+        "    set minSrcAmount ",
+        {
+          "p": "minSrcAmount"
+        },
+        " # minimum reserve kept in src; 0 = drain to empty"
+      ],
+      "\n    # --- storage blocks --------------------------------------------------\n    # Locked into reference vars once at boot from linked block names.\n    # Both must be linked BEFORE loading the script (no retry if unlinked).",
+      [
+        "    set src_block ",
+        {
+          "p": "src_block"
+        },
+        " # source storage: where items come from"
+      ],
+      [
+        "    set dst_block ",
+        {
+          "p": "dst_block"
+        },
+        " # destination storage: delivery target"
+      ],
+      "\n    # --- list length detection (zero-terminated scan, cap 16) --------\n    set idx 0\n    set item_count 0\nscan_next:\n    jump scan_done greaterThanEq idx 16 # hard cap: the list has at most 16 slots\n    set ret @counter\n    jump get_item always\n    op equal slot_null result null # resume; is this slot unused?\n    jump scan_done equal slot_null true\n    op add item_count item_count 1\n    op add idx idx 1\n    jump scan_next always\nscan_done:\n    jump main greaterThan item_count 0\n    print \"WARNING: no candidate slots configured (item0..item15 all null)\"\n    printflush message2\n\n# ----------------------------------------------------------------------------\n#  MAIN -- one pass per processor cycle batch\n# ----------------------------------------------------------------------------\nmain:\n    # --- sticky re-test of the previously selected item ---------------\n    jump FullTest equal resource null\n    set resourceToTest resource\n    set ret @counter\n    jump TestResource always\n    # --- (returned) remembered item no longer passes -> full walk ----\n\nFullTest:\n    set idx 0\nFullTestLoop:\n    jump NoMatch greaterThanEq idx item_count\n    set ret @counter\n    jump get_item always\n    op equal slot_null result null # resume; defensive (walk is count-bounded)\n    jump FullTestNext equal slot_null true\n    set resourceToTest result\n    set ret @counter\n    jump TestResource always\nFullTestNext:\n    op add idx idx 1\n    jump FullTestLoop always\n\nNoMatch:\n    # nothing passed -> clear selection (Update disables all unloaders)\n    set resource null\n    jump Update always\n\n\nTestResource:\n  sensor resourceAmount dst_block resourceToTest\n  jump TestResourceReturn greaterThanEq resourceAmount amountToTest\n    sensor haveResource src_block resourceToTest\n    jump TestResourceReturn lessThanEq haveResource minSrcAmount\n      set resource resourceToTest\n      jump Update always\n  TestResourceReturn:\n    op add @counter ret 1\n\n\n# ----------------------------------------------------------------------------\n#  SUBROUTINE: get_item -- array-sim GET accessor for the item list (read-only)\n#    in : idx (slot index 0..15)   out: result (= item<idx>)\n#    call convention: set ret @counter ; jump get_item always\n#    Layout: prologue is exactly 6 instructions; base capture makes edits\n#    ABOVE this block safe - never insert/remove lines INSIDE the table.\n#    Positions are relative to getBase only (element k = getBase + 2k); no absolute indexes.\n# ----------------------------------------------------------------------------\nget_item:\n    jump item_oob lessThan idx 0 # bounds low (null idx behaves as 0)\n    jump item_oob greaterThanEq idx 16 # bounds high\n    op add getBase @counter 3 # base capture -> first table line\n    op mul t2 idx 2 # stride: 2 instructions per slot\n    op add target getBase t2 # target address for this slot\n    op add @counter target 0 # computed goto into the table\n    set result item0 # = getBase + 0\n    op add @counter ret 1 # return\n    set result item1 # = getBase + 2\n    op add @counter ret 1 # return\n    set result item2 # = getBase + 4\n    op add @counter ret 1 # return\n    set result item3 # = getBase + 6\n    op add @counter ret 1 # return\n    set result item4 # = getBase + 8\n    op add @counter ret 1 # return\n    set result item5 # = getBase + 10\n    op add @counter ret 1 # return\n    set result item6 # = getBase + 12\n    op add @counter ret 1 # return\n    set result item7 # = getBase + 14\n    op add @counter ret 1 # return\n    set result item8 # = getBase + 16\n    op add @counter ret 1 # return\n    set result item9 # = getBase + 18\n    op add @counter ret 1 # return\n    set result item10 # = getBase + 20\n    op add @counter ret 1 # return\n    set result item11 # = getBase + 22\n    op add @counter ret 1 # return\n    set result item12 # = getBase + 24\n    op add @counter ret 1 # return\n    set result item13 # = getBase + 26\n    op add @counter ret 1 # return\n    set result item14 # = getBase + 28\n    op add @counter ret 1 # return\n    set result item15 # = getBase + 30\n    op add @counter ret 1 # return\nitem_oob:\n    print \"get_item OOB idx=\"\n    print idx\n    printflush message2\n    op add @counter ret 1\n\n\nUpdate:\n\n\n\nset index 0\n\nFindNextUnloaderLoop:\n\tjump EndLoop greaterThanEq index @links\n\t\tgetlink building index\n\t\tsensor type building @type\n\t\tjump ContinueFindNextUnloaderLoop notEqual type @unloader\n\t\t#else\n\t\t\tjump DisableUnloader equal resource null\n\t\t\t\tcontrol config building resource\n\t\t\t\tcontrol enabled building true\n\t\t\t\tjump ContinueFindNextUnloaderLoop always\n\t\t\tDisableUnloader:\n\t\t\t\tcontrol enabled building false\n\t\tContinueFindNextUnloaderLoop:\n\t\top add index index 1\n\t\tjump FindNextUnloaderLoop always\n\n\tEndLoop:\n\t\nend"
+    ]
+  }
+};
+</script>
+<script>
+const ITEMS = [
+  "@beryllium",
+  "@blast-compound",
+  "@carbide",
+  "@coal",
+  "@copper",
+  "@dormant-cyst",
+  "@fissile-matter",
+  "@graphite",
+  "@lead",
+  "@metaglass",
+  "@oxide",
+  "@phase-fabric",
+  "@plastanium",
+  "@pyratite",
+  "@sand",
+  "@scrap",
+  "@silicon",
+  "@spore-pod",
+  "@surge-alloy",
+  "@thorium",
+  "@titanium",
+  "@tungsten"
+];
+const UNITS = [
+  "@aegires",
+  "@alpha",
+  "@anthicus",
+  "@antumbra",
+  "@arkyid",
+  "@assembly-drone",
+  "@atrax",
+  "@avert",
+  "@beta",
+  "@block",
+  "@bryde",
+  "@cleroi",
+  "@collaris",
+  "@conquer",
+  "@corvus",
+  "@crawler",
+  "@cyerce",
+  "@dagger",
+  "@disrupt",
+  "@dummy",
+  "@eclipse",
+  "@elude",
+  "@emanate",
+  "@evoke",
+  "@flare",
+  "@fortress",
+  "@gamma",
+  "@horizon",
+  "@incite",
+  "@latum",
+  "@locus",
+  "@mace",
+  "@manifold",
+  "@mega",
+  "@merui",
+  "@minke",
+  "@mono",
+  "@navanax",
+  "@nova",
+  "@obviate",
+  "@oct",
+  "@omura",
+  "@oxynoe",
+  "@poly",
+  "@precept",
+  "@pulsar",
+  "@quad",
+  "@quasar",
+  "@quell",
+  "@reign",
+  "@renale",
+  "@retusa",
+  "@risso",
+  "@scepter",
+  "@sei",
+  "@spiroct",
+  "@stell",
+  "@tecta",
+  "@toxopid",
+  "@vanquish",
+  "@vela",
+  "@zenith"
+];
+</script>
+<script>// ScriptConfig engine — page logic for the generated index.html (R3: inlined verbatim,
+// after make.py's injected `const TEMPLATES` / `ITEMS` / `UNITS`). No modules, no fetch.
+// Pure template logic is exposed on window.SC and testable without a DOM; everything
+// that touches the document runs only behind the real-document check below.
+(function(){
+"use strict";
+
+// ── pure: zero-walk + cell expansion (no MLog knowledge beyond the slot shape) ──
+
+// filled = length of the leading non-empty prefix of an array's rows; a blank row
+// terminates the list like explicit null, and filled entries pack from index 0.
+function filled(a){ let n=0; while(n<a.length && String(a[n]).trim()!=="") n++; return n; }
+
+// expandLines(tpl, vals) -> {lines, owner}: the generated script as an array of
+// lines, plus `owner[i]` = the parameter name that produced line i (null for static
+// lines). The preview renders one element per line so a single line can be flashed,
+// which is why the ownership is reported alongside the text.
+//   string line      → emitted as-is
+//   cell list        → cells concatenated, {"p":name} replaced by the scalar's value
+//   {"a":name} line  → one "<indent>set <var><k> <value>" per filled k (variable size);
+//                      fixed size emits all max lines, blanks as null.
+//
+// A generated parameter line may end with a description comment: make.py emits it as the line's
+// LAST cell, a plain string beginning with "#". Because it is a cell, the boundary between the
+// code and the comment is already known while the line is built — no scanning, no regex.
+function isCommentCell(c){
+  if(typeof c!=="string") return false;
+  for(let i=0;i<c.length;i++){
+    const ch=c.charAt(i);
+    if(ch===" "||ch==="\t") continue;
+    return ch==="#";
+  }
+  return false;
+}
+
+// Extra breathing room between a value and its comment, on top of the single space make.py
+// already emits — so the tightest gap in a run is this many spaces plus one.
+const COMMENT_GAP=2;
+
+// alignComments(lines, commentAt): pad each run of consecutive lines that carry a trailing
+// comment, so the comments start in the same column. commentAt[i] is the index in line i where
+// its comment begins, or -1 when the line has none — and -1 also ENDS a run, so a blank line, a
+// label, a comment-less instruction or an array slot line separates groups without needing a
+// rule of its own. One pass over the lines; the only allocation is the padding.
+function alignComments(lines, commentAt){
+  const out=lines.slice();
+  let i=0;
+  while(i<out.length){
+    if(commentAt[i]<0){ i++; continue; }
+    let j=i;
+    while(j+1<out.length && commentAt[j+1]>=0) j++;
+    let max=commentAt[i];
+    for(let k=i+1;k<=j;k++) if(commentAt[k]>max) max=commentAt[k];
+    // Every line in the run is padded, including a run of one, so a lone commented line is
+    // spaced the same as one in a block rather than depending on its neighbours.
+    for(let k=i;k<=j;k++){
+      const pad=max-commentAt[k]+COMMENT_GAP;
+      out[k]=out[k].slice(0,commentAt[k])+" ".repeat(pad)+out[k].slice(commentAt[k]);
+    }
+    i=j+1;
+  }
+  return out;
+}
+
+// filledString(a): like filled, but for a string array, where "not set" is the unchecked state
+// (null) and an EMPTY STRING is a value the user really typed. Treating "" as blank would make
+// an empty string unwritable, which is the ambiguity the nullable-string control exists to
+// remove.
+function filledString(a){
+  let n=0;
+  while(n<a.length && a[n]!==null && a[n]!==undefined) n++;
+  return n;
+}
+
+function expandLines(tpl, vals){
+  const lines=[], owner=[], commentAt=[];
+  const push=(s,o,at)=>{ lines.push(s); owner.push(o===undefined?null:o); commentAt.push(at===undefined?-1:at); };
+  const types=paramTypes(tpl);
+  // One place decides how a parameter's value reaches the script: a declared string is
+  // quoted and escaped, everything else is written as the bare token it already is.
+  const valueOf=(name, raw)=>isStringParam(types, name) ? mlogString(raw) : String(raw);
+  for(const line of tpl.lines){
+    if(typeof line==="string"){ push(line,null); continue; }
+    if(Array.isArray(line)){
+      let s="", o=null;
+      for(const c of line){
+        if(typeof c==="object" && c.p!==undefined){ s += valueOf(c.p, vals[c.p]); o=c.p; }
+        else s += c;
+      }
+      // Only a line that has a hole can carry a description, so a single-cell list is left
+      // alone; the comment starts where the final cell begins.
+      const last=line[line.length-1];
+      const at=(line.length>1 && isCommentCell(last)) ? s.length-last.length : -1;
+      push(s,o,at); continue;
+    }
+    const name=line.a, p=tpl.params.find(q=>q.name===name), a=vals[name], ind=p.indent||"";
+    const str=isStringParam(types, name);
+    if(p.size==="fixed"){
+      for(let k=0;k<p.max;k++){
+        const val=a[k];
+        // A blank row means "not set", which a string writes as the null literal — the same
+        // thing an unchecked nullable-string row produces, so the two cannot disagree. For a
+        // string, only the unchecked state counts as blank; "" is a set, empty value.
+        const blank = str ? (val===null || val===undefined)
+                          : (val===undefined || val===null || String(val).trim()==="");
+        const text=blank ? "null" : valueOf(name, val);
+        push(ind+"set "+p.var+k+" "+text, name);
+      }
+    } else {
+      const n=str ? filledString(a) : filled(a);
+      for(let k=0;k<n;k++) push(ind+"set "+p.var+k+" "+valueOf(name, a[k]), name);
+    }
+  }
+  // Static lines keep their exact bytes: only generated parameter lines take part.
+  return {lines:alignComments(lines, commentAt), owner};
+}
+
+// expand(tpl, vals) -> generated script text (lines joined with "\n").
+function expand(tpl, vals){ return expandLines(tpl, vals).lines.join("\n"); }
+
+// ownedIndex(owner, name, k) -> index of the k-th line produced by parameter `name`,
+// or -1 when there is none (e.g. a row past the emitted range). `k` omitted/0 → first.
+function ownedIndex(owner, name, k){
+  const want=k===undefined?0:k;
+  let seen=0;
+  for(let i=0;i<owner.length;i++){
+    if(owner[i]===name){ if(seen===want) return i; seen++; }
+  }
+  return -1;
+}
+
+// ── pure: enum search (the typeable item/unit fields) ──
+
+// Names are compared without their leading @ and case-insensitively, so typing "pol"
+// finds "@poly" without needing the @ that every MLog value carries.
+function stripAt(s){ return String(s===undefined||s===null?"":s).replace(/^@/,"").toLowerCase(); }
+
+// matchTier(value, query): 0 = the name starts with the query, 1 = it contains the
+// query, -1 = no match. An empty query matches everything at tier 0, so the list keeps
+// its original order until something is actually typed.
+function matchTier(value, query){
+  const q=stripAt(query).trim();
+  if(q==="") return 0;
+  const n=stripAt(value);
+  if(n.startsWith(q)) return 0;
+  return n.indexOf(q)>-1?1:-1;
+}
+
+// rankedOptions(list, query): display order — matches first (better tier, then original
+// order), non-matches after them in their original order. Nothing is ever removed, so a
+// query that matches nothing returns the whole list unchanged.
+function rankedOptions(list, query){
+  const q=String(query===undefined||query===null?"":query).trim();
+  if(q==="") return list.slice();
+  const scored=list.map((v,i)=>({v,i,t:matchTier(v,q)}));
+  return scored.filter(o=>o.t>=0).sort((a,b)=>a.t-b.t||a.i-b.i)
+    .concat(scored.filter(o=>o.t<0)).map(o=>o.v);
+}
+
+// matchCount(list, query): how many entries match — marks where the matches end.
+function matchCount(list, query){
+  const q=String(query===undefined||query===null?"":query).trim();
+  return q===""?list.length:list.filter(v=>matchTier(v,q)>=0).length;
+}
+
+// normalizeValue(list, text): the canonical entry when the text names one (ignoring a
+// leading @ and case), otherwise the text exactly as typed. "poly" → "@poly", "pol" stays "pol".
+function normalizeValue(list, text){
+  const s=String(text===undefined||text===null?"":text).trim();
+  const hit=list.find(v=>stripAt(v)===stripAt(s));
+  return hit===undefined?s:hit;
+}
+
+// isKnown(list, value): whether the value is one of the list's entries — drives the
+// warning styling for a value the built-in list does not know.
+function isKnown(list, value){
+  const s=stripAt(value);
+  return s!=="" && list.some(v=>stripAt(v)===s);
+}
+
+// optionsWithCurrent(list, value): the list, plus the current value when the list does not
+// know it — placed FIRST. A blank or unfamiliar entry parked at the bottom would sit at the
+// last index, leaving Down clamped there; leading the list instead means the highlight starts
+// at the top and Down steps straight onto the first real entry. A known value changes nothing.
+function optionsWithCurrent(list, value){
+  return isKnown(list, value) ? list.slice() : [value].concat(list);
+}
+
+// attentionLines(owner, names): the indices of the lines produced by those parameters.
+// owner[i] is the parameter that produced line i (null for static lines), so this is the
+// "which preview lines concern this change" decision, separated from how they are marked
+// or scrolled into view. Line order, no duplicates (a line has exactly one owner).
+// An unknown or empty name simply contributes nothing.
+function attentionLines(owner, names){
+  const out=[];
+  if(!names || !names.length) return out;
+  for(let i=0;i<owner.length;i++){
+    const o=owner[i];
+    if(o!==null && names.indexOf(o)!==-1) out.push(i);
+  }
+  return out;
+}
+
+// blockScrollTop(blockTop, blockBottom, viewHeight): where to scroll so that a run of lines
+// is shown. Centred when the run fits the view ("try to center it"); when it is taller than
+// the view there is nothing to centre, so its top goes to the top of the view, leaving GAP
+// pixels of margin. Coordinates are in the scroll container's own space, so the caller adds
+// the current scrollTop. The result may be negative near the start of the script — the
+// browser clamps that to 0, which is the "if possible" part of centring.
+const BLOCK_GAP=6;
+function blockScrollTop(blockTop, blockBottom, viewHeight){
+  const h=blockBottom-blockTop;
+  return h<=viewHeight ? blockTop-(viewHeight-h)/2 : blockTop-BLOCK_GAP;
+}
+
+// ── pure: recovering settings from pasted script text ──
+//
+// The inputs we accept are three shapes of the same script — our own generated output, the
+// marked-up source .txt, and a game export — and we never validate any of them. A line that
+// reads `set <var> <value>` is script enough; everything else in the text is ignored.
+
+// scriptLines(text): split on CRLF, LF or CR, dropping a leading byte-order mark.
+// One pass, no regex. A trailing newline yields a final empty line, which is harmless here.
+function scriptLines(text){
+  const s=String(text===undefined||text===null?"":text);
+  const start=(s.charAt(0)==="\uFEFF")?1:0;      // a pasted file may carry a BOM
+  const out=[]; let cur="";
+  for(let i=start;i<s.length;i++){
+    const c=s[i];
+    if(c==="\n"){ out.push(cur); cur=""; continue; }
+    if(c==="\r"){ out.push(cur); cur=""; if(s.charAt(i+1)==="\n") i++; continue; }
+    cur+=c;
+  }
+  out.push(cur);
+  return out;
+}
+
+// segments(line): the logical pieces of one MLog line, by single-pass state machine.
+// The rules, as the language actually behaves here:
+//   - a backslash escapes ONLY inside a string, and only \" \\ and \n are escapes; any
+//     other \x stays literal. Outside a string a backslash is an ordinary character.
+//   - '"' toggles string state.
+//   - '#' outside a string starts a comment: it and the rest of the line are dropped.
+//   - spaces and tabs separate only outside a string.
+// Quotes are consumed, so a string comes back normalized (delimiters gone, escapes
+// resolved). Only three escapes means only three ways a value can contain a character that
+// would break a generated line — see PLAN.md for the output side of that.
+function segments(line){
+  const out=[]; let cur="", inStr=false, started=false, i=0;
+  while(i<line.length){
+    const c=line[i];
+    if(inStr && c==="\\" && i+1<line.length){
+      const e=line[i+1];
+      if(e==='"'){  cur+='"';  i+=2; started=true; continue; }
+      if(e==="\\"){ cur+="\\"; i+=2; started=true; continue; }
+      if(e==="n"){  cur+="\n"; i+=2; started=true; continue; }
+      cur+=c; i++; started=true; continue;          // unknown escape stays literal
+    }
+    if(c==='"'){ inStr=!inStr; started=true; i++; continue; }
+    if(!inStr && c==="#") break;
+    if(!inStr && (c===" " || c==="\t")){
+      if(started){ out.push(cur); cur=""; started=false; }
+      i++; continue;
+    }
+    cur+=c; started=true; i++;
+  }
+  if(started) out.push(cur);
+  return out;
+}
+
+// mlogString(v): a string parameter's value as it is written into the script — quoted and
+// escaped. The exact inverse of segments above, and it must stay that way: the three escapes
+// here are the three that reader understands, and a value containing anything else goes in
+// verbatim.
+//
+// Quoting is unconditional, never decided by the content. In MLog a bare token is a variable
+// reference, so `set x BOOT` reads the variable BOOT while `set x "BOOT"` is the literal; a
+// value that happened to need no escaping would silently change meaning if it were emitted
+// bare. This is also why only a declared string parameter goes through here — every other
+// type's value is a token that is meant to be bare.
+//
+// null is NOT a string: a string parameter's unchecked state emits the null literal, which is
+// the one value that reaches a script unquoted.
+function mlogString(v){
+  if(v===null || v===undefined) return "null";
+  const s=String(v);
+  let out='"';
+  for(let i=0;i<s.length;i++){
+    const c=s.charAt(i);
+    if(c==="\\") out+="\\\\";
+    else if(c==='"') out+='\\"';
+    else if(c==="\n") out+="\\n";
+    else out+=c;
+  }
+  return out+'"';
+}
+
+// paramTypes(tpl): name -> declared type, built once so expandLines does not scan the params
+// table for every cell of every line.
+function paramTypes(tpl){
+  const m={};
+  for(const p of tpl.params) if(p.type!==undefined) m[p.name]=p.type;
+  return m;
+}
+
+// isStringParam(types, name): whether a value for this parameter is written as a quoted string.
+function isStringParam(types, name){ return types[name]==="string"; }
+
+
+// parseSettings(t, text) -> {paramName: value | [values]} for everything the text contains.
+// Extraction, not validation: a line qualifies when its first pieces are `set <var> <value>`
+// (three or more — extra pieces are part of the value, joined by a space; note that affects
+// only unusual hand-written lines, since every real value is a single token or a string).
+// The variable a scalar is written as is its own name; an array's is `var` (make.py always
+// emits it). First occurrence wins, which is right because the config block sits at the top.
+//
+// The two array kinds import differently, mirroring how they generate:
+//   variable — walk var0, var1 … and STOP at the first missing, empty or null slot. This is
+//              the zero-walk rule, and it is why a source .txt with trailing `null` slots
+//              yields exactly what a generated script or a game export yields.
+//   fixed    — read ALL max slots; a missing or null slot becomes an empty row. Stopping at
+//              a null here would silently drop any value stored after it, which the fixed
+//              form allows (blanks are legal in the middle). Only apply when something was
+//              actually found, so an unrelated text cannot blank the array.
+function parseSettings(t, text){
+  const segs=scriptLines(text).map(segments);
+  const find=v=>segs.find(s=>s.length>=3 && s[0]==="set" && s[1]===v);
+  const types=paramTypes(t);
+  // A string parameter reads back as content, which is what segments already produced (it
+  // resolves quotes and escapes). The one value that is not content is the null literal: for a
+  // string that means "not set", so it becomes null rather than the four-letter text "null".
+  const asValue=(name, raw)=>{
+    if(!isStringParam(types, name)) return raw;
+    return raw==="null" ? null : raw;
+  };
+  const found={};
+  for(const p of t.params){
+    const v=p.var||p.name;
+    if(Array.isArray(p.default)){
+      if(p.size==="fixed"){
+        const arr=[]; let any=false;
+        for(let k=0;k<p.max;k++){
+          const h=find(v+k);
+          if(h) any=true;
+          const raw=h?h.slice(2).join(" "):"";
+          // Three cases, and they are genuinely different:
+          //   no line at all      -> not set: "" for an ordinary type, null for a string
+          //   a null line         -> the same "not set"
+          //   an empty string ""  -> a SET value that happens to be empty, kept as ""
+          // The last one matters because segments consumes the quotes: `set m3 ""` and a
+          // missing m3 both leave an empty piece, and only the line's existence tells them
+          // apart.
+          let slotVal;
+          if(!h || raw==="null") slotVal = isStringParam(types, p.name) ? null : "";
+          else slotVal = raw;
+          arr.push(slotVal);
+        }
+        if(any) found[p.name]=arr;
+      } else {
+        const arr=[];
+        for(let k=0;k<p.max;k++){
+          const h=find(v+k);
+          if(!h) break;
+          const val=h.slice(2).join(" ");
+          if(val==="" || val==="null") break;       // zero-terminated: the list ends here
+          arr.push(asValue(p.name, val));
+        }
+        if(arr.length) found[p.name]=arr;
+      }
+    } else {
+      const h=find(v);
+      if(h) found[p.name]=asValue(p.name, h.slice(2).join(" "));
+    }
+  }
+  return found;
+}
+
+if(typeof window!=="undefined") window.SC={filled, expand, expandLines, ownedIndex,
+  stripAt, matchTier, rankedOptions, matchCount, normalizeValue, isKnown, optionsWithCurrent,
+  attentionLines, blockScrollTop, scriptLines, segments, parseSettings,
+  mlogString, paramTypes, isStringParam, filledString, defaults,
+  isCommentCell, alignComments,
+  wheelDir, stepIndex, stepNumber};
+
+// ── pure: wheel stepping ──
+// Decided behavior: one scroll event = one step (no delta normalization — a touchpad
+// simply simulates mouse scrolling), and a step at either end holds instead of moving.
+
+// Direction of a wheel delta: -1 up, +1 down, 0 for a no-op (zero) delta.
+function wheelDir(deltaY){ return deltaY>0?1:(deltaY<0?-1:0); }
+
+// Clamped selection step: sits at 0 / n-1 at the ends rather than wrapping.
+function stepIndex(i, n, d){ const j=i+d; return j<0?0:(j>n-1?n-1:j); }
+
+// Number step: +1/-1 per event. null when the field holds no usable number
+// (empty or non-numeric) — the caller then does nothing rather than invent a value.
+function stepNumber(value, d){
+  const t=String(value).trim();
+  if(t==="") return null;
+  const v=Number(t);
+  return Number.isFinite(v)?String(v+d):null;
+}
+
+// ── DOM wiring (browser only) ──
+if(typeof document==="undefined" || typeof TEMPLATES==="undefined") return;
+
+const $=id=>document.getElementById(id);
+let tpl=null, vals={};
+
+function el(tag, cls){ const e=document.createElement(tag); if(cls) e.className=cls; return e; }
+
+// defaults: scalar → p.default (string, or null for a nullable string that is not set),
+// array → copy of default[] (contiguous prefix).
+function defaults(t){
+  const v={};
+  for(const p of t.params){
+    if(Array.isArray(p.default)){ v[p.name]=p.default.slice(); continue; }
+    // A null default is a string parameter's "not set" and must stay null: String(null ?? "")
+    // would turn it into an empty string — a different value — so an unchecked field would
+    // load as a checked one holding nothing.
+    v[p.name]=(p.default===null || p.default===undefined) ? null : String(p.default);
+  }
+  return v;
+}
+
+// Wheel over a FOCUSED field steps it instead of scrolling the parameters panel.
+// Hover needs no test of its own: a wheel event is delivered to the element under the
+// pointer, so this listener running at all means the cursor is over the field. Both
+// conditions are therefore required — focus here, hover by delivery.
+//
+// Every qualifying event is swallowed, even when it changes nothing (list boundary,
+// text field, unparsable number): nothing behind the field may scroll. Modifier
+// gestures (ctrl+wheel zoom, shift/alt) are left alone.
+function attachWheelStep(elm, evtName){
+  elm.addEventListener("wheel", ev=>{
+    if(ev.ctrlKey||ev.altKey||ev.shiftKey) return;
+    // contains() also covers an enum combo, whose focus lives on the input inside it.
+    if(!elm.contains(document.activeElement)) return;
+    const d=wheelDir(ev.deltaY);
+    if(d===0) return;
+    ev.preventDefault();
+    let changed=false;
+    if(elm.tagName==="SELECT"){
+      const j=stepIndex(elm.selectedIndex, elm.options.length, d);
+      if(j!==elm.selectedIndex){ elm.selectedIndex=j; changed=true; }
+    } else if(elm.type==="number"){
+      const v=stepNumber(elm.value, d);
+      if(v!==null && v!==elm.value){ elm.value=v; changed=true; }
+    } else if(elm._list){
+      // enum combo: browse the full list by wheel; any half-typed query is dropped
+      const list=elm._list, i=list.indexOf(elm.value);
+      const nv=list[stepIndex(i<0?0:i, list.length, d)];
+      if(nv!==elm.value){ elm.value=nv; changed=true; }
+      if(openWrap===elm){ elm._typed=false; elm._inp.value=elm.value; comboRefresh(elm); }
+    }
+    // text fields: swallowed with no step — no logical next value exists
+    // setting .value fires no event, so drive the existing listeners explicitly
+    if(changed) elm.dispatchEvent(new Event(evtName, {bubbles:true}));
+  }, {passive:false});
+}
+
+// ── enum field: a typeable input backed by one shared floating list ──
+//
+// Typing REORDERS the list — matches float to the top, everything else stays below a
+// divider — so no option is ever hidden. The value changes only on an explicit pick
+// (Enter, click, or arrows then leaving the field), never while typing, so the generated
+// script never shows a half-typed item. A value the built-in list does not know is kept
+// (not reverted) and flagged in the warning colour.
+
+const popup=el("div","combolist"); popup.hidden=true; document.body.append(popup);
+let openWrap=null, order=[], active=-1;
+
+// The options for a field: the built-in list, plus the current value when the list does
+// not know it — an unfamiliar value stays visible and flagged rather than being lost, and
+// it leads the list so keyboard browsing starts at the top (see optionsWithCurrent).
+function comboList(wrap){
+  return optionsWithCurrent(wrap._list, wrap._value);
+}
+
+function setActive(wrap, i, setText){
+  active=i;
+  (wrap._opts||[]).forEach((d,j)=>d.classList.toggle("act", j===i));
+  if(i>=0 && wrap._opts[i]){
+    wrap._opts[i].scrollIntoView({block:"nearest"});
+    if(setText) wrap._inp.value=order[i];   // arrows preview the entry they land on
+  }
+}
+
+function comboRefresh(wrap){
+  const list=comboList(wrap);
+  const q=wrap._typed?wrap._inp.value:"";
+  order=rankedOptions(list, q);
+  const matched=matchCount(list, q);
+  popup.innerHTML=""; wrap._opts=[];
+  order.forEach((v,i)=>{
+    if(matched>0 && matched<order.length && i===matched) popup.append(el("div","sep"));
+    const d=el("div","opt");
+    d.textContent=v; d._value=v;
+    if(v===wrap._value) d.classList.add("cur");
+    // An empty entry means "no item here" for an array row, not an unknown value — the
+    // field itself is not flagged for being blank, so its list entry matches.
+    if(v!=="" && !isKnown(wrap._list, v)) d.classList.add("unk");
+    popup.append(d); wrap._opts.push(d);
+  });
+  // Nothing typed → mark where you are and bring it into view; typed → mark the best match.
+  setActive(wrap, wrap._typed ? (matched>0?0:-1) : order.indexOf(wrap._value), false);
+}
+
+function closeList(){ popup.hidden=true; popup.innerHTML=""; openWrap=null; order=[]; active=-1; }
+
+// Keep the list against its field; flip above it when there is no room below.
+function positionList(wrap){
+  const r=wrap.getBoundingClientRect();
+  const h=Math.min(popup.scrollHeight, 230);
+  const below=window.innerHeight-r.bottom-6, above=r.top-6;
+  const up=below<h && above>below;
+  popup.style.left=r.left+"px";
+  popup.style.width=r.width+"px";
+  popup.style.top=(up?Math.max(4, r.top-h-2):r.bottom+2)+"px";
+}
+
+// Make `v` the field's value: close, display it, flag it when unrecognised, and drive the
+// existing listeners (which read .value and re-render the preview) only when it changed.
+function commitValue(wrap, v){
+  closeList();
+  const changed=v!==wrap._value;
+  wrap.value=v;
+  wrap._typed=false;
+  if(changed) wrap.dispatchEvent(new Event("input", {bubbles:true}));
+}
+
+function openList(wrap){
+  if(openWrap && openWrap!==wrap) closeList();
+  openWrap=wrap;
+  popup.hidden=false;        // visible first: the refresh scrolls the current entry into view
+  comboRefresh(wrap);
+  positionList(wrap);
+}
+
+function makeCombo(list, value){
+  const wrap=el("div","combo");
+  const inp=document.createElement("input");
+  inp.type="text"; inp.className="comboin"; inp.autocomplete="off"; inp.spellcheck=false;
+  inp.value=value;
+  const car=el("span","car"); car.textContent="▾";
+  wrap.append(inp, car);
+  wrap._list=list; wrap._inp=inp; wrap._opts=[]; wrap._typed=false;
+  wrap._value=String(value===undefined||value===null?"":value);
+  // `.value` on the wrapper is what every existing call site reads and writes.
+  Object.defineProperty(wrap, "value", {
+    get(){ return wrap._value; },
+    set(v){
+      wrap._value=String(v===undefined||v===null?"":v);
+      inp.value=wrap._value;
+      wrap.classList.toggle("warn", wrap._value!=="" && !isKnown(list, wrap._value));
+    }
+  });
+  wrap.value=wrap._value;
+
+  inp.addEventListener("focus", ()=>{ wrap._typed=false; inp.select(); openList(wrap); });
+  inp.addEventListener("input", ()=>{ wrap._typed=true; comboRefresh(wrap); });
+  inp.addEventListener("blur", ()=>{ commitValue(wrap, normalizeValue(wrap._list, inp.value)); });
+  inp.addEventListener("keydown", ev=>{
+    if(ev.key==="ArrowDown" || ev.key==="ArrowUp"){
+      ev.preventDefault();
+      if(popup.hidden){ openList(wrap); return; }
+      if(!order.length) return;
+      const i=active+(ev.key==="ArrowDown"?1:-1);
+      setActive(wrap, Math.max(0, Math.min(order.length-1, i)), true);
+    } else if(ev.key==="Enter"){
+      ev.preventDefault();
+      const pick=active>=0 && order[active]!==undefined;
+      commitValue(wrap, pick ? order[active] : normalizeValue(wrap._list, inp.value));
+    } else if(ev.key==="Escape"){
+      ev.preventDefault();
+      wrap._typed=false; inp.value=wrap._value; closeList();
+    }
+  });
+  return wrap;
+}
+
+// A click in the list picks; preventDefault keeps focus in the field so the blur path
+// (which would commit the typed text first) never fires.
+popup.addEventListener("mousedown", ev=>{
+  const d=ev.target.closest?ev.target.closest(".opt"):null;
+  if(!d || !openWrap) return;
+  ev.preventDefault();
+  commitValue(openWrap, d._value);
+});
+// A click anywhere else commits whatever the open field holds, then closes it.
+document.addEventListener("mousedown", ev=>{
+  if(openWrap && !openWrap.contains(ev.target) && !popup.contains(ev.target))
+    commitValue(openWrap, normalizeValue(openWrap._list, openWrap._inp.value));
+});
+// The panel scrolls under the list: follow the field, or close when it leaves sight.
+$("params").addEventListener("scroll", ()=>{
+  if(!openWrap) return;
+  const r=openWrap.getBoundingClientRect(), p=$("params").getBoundingClientRect();
+  if(r.bottom<p.top || r.top>p.bottom) commitValue(openWrap, normalizeValue(openWrap._list, openWrap._inp.value));
+  else positionList(openWrap);
+}, {passive:true});
+window.addEventListener("resize", ()=>{ if(openWrap) positionList(openWrap); });
+
+// widget per type: int → number input; unit/item → typeable combo over the built-in
+// list; string → the nullable-string control below; undefined/other → generic text.
+function makeWidget(type, value){
+  if(type==="string") return makeStringWidget(value);
+  let w;
+  if(type==="int"){ w=document.createElement("input"); w.type="number"; w.value=value; }
+  else if(type==="unit"||type==="item"){ w=makeCombo(type==="unit"?UNITS:ITEMS, value); }
+  else { w=document.createElement("input"); w.type="text"; w.value=value; }
+  attachWheelStep(w, "input");
+  return w;
+}
+
+// A string parameter's control: a checkbox that says whether the value is set at all, and a
+// text area holding the content. Unchecked writes the null literal into the script and the
+// text area is disabled — there is nothing to type into a value that is not there.
+//
+// The text area is the CONTENT the script will read, not the source token: quotes are absent
+// (they are added on output) and escapes are resolved (a real newline is shown as one, not as
+// \n). That is the whole point — what is typed is what the script gets, so a backslash is a
+// backslash and there is nothing to escape or unescape by hand.
+//
+// `.value` follows the same convention as the combo wrapper: it is what every call site reads
+// and writes. Here it can be null, which is the "not set" state, so it must not be coerced to
+// an empty string the way the combo's is.
+function makeStringWidget(value){
+  const wrap=el("div","strwrap");
+  const box=document.createElement("input"); box.type="checkbox"; box.className="strbox";
+  const area=document.createElement("textarea");
+  area.className="strin"; area.rows=1; area.spellcheck=false; area.autocomplete="off";
+  const set=!(value===null || value===undefined);
+  box.checked=set;
+  area.value=set?String(value):"";
+  area.disabled=!set;
+  wrap._box=box; wrap._area=area; wrap._value=set?String(value):null;
+
+  // Grow with the content, so a value with newlines is not hidden behind a scrollbar.
+  function fit(){ area.style.height="auto"; area.style.height=area.scrollHeight+"px"; }
+  function sync(){ area.disabled=!box.checked; fit(); }
+  box.addEventListener("change", sync);
+  // Not attachWheelStep: a text field swallows the wheel so it cannot fall through to panel
+  // scrolling, but this is multi-line and the wheel has to scroll its own content.
+  Object.defineProperty(wrap, "value", {
+    get(){ return wrap._value; },
+    set(v){
+      const on=!(v===null || v===undefined);
+      wrap._value=on?String(v):null;
+      box.checked=on; area.value=on?String(v):""; area.disabled=!on; fit();
+    }
+  });
+  area.addEventListener("input", ()=>{ wrap._value=box.checked?area.value:null; fit(); });
+  wrap.append(box, area);
+  requestAnimationFrame(fit);
+  return wrap;
+}
+
+// Last generated text, kept for Copy: the preview is one element per line, so reading
+// the text back out of the DOM would lose the line breaks.
+let outText="";
+
+// Honour an OS-level "reduce motion" setting: no flash animation, no smooth scrolling.
+const reduceMotion=!!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+// Reset returns the preview to the top, animated like the follow-scroll.
+function scrollPreviewTop(){ $("out").scrollTo({top:0, behavior:reduceMotion?"auto":"smooth"}); }
+
+// renderOut(follow) re-renders the preview from the current values.
+//
+// `follow` describes what deserves attention, and there are two kinds because typing and
+// importing are different gestures:
+//   {name, k?}          an ordinary edit of one field. That field's line flashes (transient)
+//                       and is scrolled to only when it is not already visible.
+//   {names, mode:"paste"} an import, which can change several parameters at once. Every line
+//                       those parameters produced lights up AND STAYS LIT while the paste
+//                       awaits Confirm or Decline, and the view is fitted to the whole run
+//                       rather than to one line.
+//   null                no attention: reset, script switch, first paint.
+function renderOut(follow){
+  const out=$("out");
+  const res=expandLines(tpl, vals);
+  outText=res.lines.join("\n");
+
+  const keep=out.scrollTop;            // rebuilding must not disturb the current view
+  const frag=document.createDocumentFragment();
+  const els=res.lines.map(s=>{ const d=el("div","ln"); d.textContent=s; frag.append(d); return d; });
+  out.innerHTML="";
+  out.append(frag);
+  out.scrollTop=keep;
+
+  if(!follow) return;
+
+  if(follow.mode==="paste"){
+    const idxs=attentionLines(res.owner, follow.names);
+    if(!idxs.length) return;           // nothing of this script changed
+    for(const i of idxs) els[i].classList.add("held");
+    // Fit the changed run: centred when it fits the view, otherwise its top to the top.
+    // The lines are already in the DOM, so their positions are measurable now.
+    const v=out.getBoundingClientRect();
+    const first=els[idxs[0]], last=els[idxs[idxs.length-1]];
+    const top=first.getBoundingClientRect().top - v.top + out.scrollTop;
+    const bottom=last.getBoundingClientRect().bottom - v.top + out.scrollTop;
+    out.scrollTo({top:blockScrollTop(top, bottom, v.height), behavior:reduceMotion?"auto":"smooth"});
+    return;
+  }
+
+  const i=ownedIndex(res.owner, follow.name, follow.k);
+  if(i<0) return;                      // that entry emits no line — nothing to show
+  const line=els[i];
+  line.classList.add("hit");
+
+  // Scroll only when the line is not already fully visible, so ordinary typing does not
+  // yank the view around. Centering is impossible near either end of the script; there
+  // it scrolls as close as it can.
+  const b=line.getBoundingClientRect(), v=out.getBoundingClientRect();
+  if(b.top<v.top || b.bottom>v.bottom){
+    line.scrollIntoView({block:"center", inline:"nearest", behavior:reduceMotion?"auto":"smooth"});
+  }
+}
+
+// The type badge. `string` is shown as "nullable string" because that is what the user is
+// actually looking at: a checkbox that decides whether there is a string here at all, and the
+// unchecked state writes the null literal. The marker stays just `type:string`.
+function typeBadge(type, suffix){
+  const b=el("span","badge");
+  b.textContent=(type==="string"?"nullable string":type)+(suffix||"");
+  return b;
+}
+
+function scalarField(p){
+  const d=el("div","field"), lab=el("div","lab");
+  lab.append(document.createTextNode(p.name));
+  if(p.type!==undefined) lab.append(typeBadge(p.type));
+  const desc=el("p","desc"); desc.textContent=p.description||"";
+  const inp=makeWidget(p.type, vals[p.name]);
+  for(const ev of ["input","change"]) inp.addEventListener(ev,()=>{ vals[p.name]=inp.value; renderOut({name:p.name}); });
+  d.append(lab, desc, inp); return d;
+}
+
+function arrayField(p){
+  const d=el("div","field"), lab=el("div","lab");
+  lab.append(document.createTextNode(p.name));
+  if(p.type!==undefined) lab.append(typeBadge(p.type, "[]"));
+  const sb=el("span","badge"); sb.textContent=p.size; lab.append(sb);
+  const desc=el("p","desc"); desc.textContent=p.description||"";
+  const rows=el("div"), foot=el("div","arrfoot");
+  const add=document.createElement("button"); add.textContent="+ add";
+  const count=el("span","count"), warn=el("div","warn");
+  warn.textContent="gap in list — entries after the first blank are ignored (zero-terminated)";
+
+  function refresh(){
+    rows.innerHTML="";
+    vals[p.name].forEach((v,i)=>{
+      const r=el("div","arrrow"), idx=el("span","idx"); idx.textContent=i;
+      const inp=makeWidget(p.type, v);
+      for(const ev of ["input","change"]) inp.addEventListener(ev,()=>{ vals[p.name][i]=inp.value; renderOut({name:p.name, k:i}); meta(); });
+      const x=el("button","x"); x.textContent="×"; x.title="remove slot "+i;
+      x.addEventListener("click",()=>{ vals[p.name].splice(i,1); draw({name:p.name, k:i}); });
+      r.append(idx, inp, x); rows.append(r);
+    });
+    add.disabled=vals[p.name].length>=p.max;
+    meta();
+  }
+  function meta(){
+    const f=filled(vals[p.name]), a=vals[p.name];
+    count.textContent=f+" / "+p.max+(p.size==="fixed"?" set":" emitted");
+    warn.style.display=(p.size!=="fixed" && f<a.length && a.slice(f).some(s=>String(s).trim()!==""))?"block":"none";
+  }
+  function draw(hit){ refresh(); renderOut(hit); }
+
+  add.addEventListener("click",()=>{ const k=vals[p.name].length; vals[p.name].push(""); draw({name:p.name, k}); const last=rows.lastElementChild; if(last) last.querySelector("input,select").focus(); });
+  d.append(lab, desc, rows, foot); foot.append(add, count); d.append(warn);
+  refresh(); return d;
+}
+
+function buildForm(){
+  closeList();                       // the old fields are about to be discarded
+  const f=$("form"); f.innerHTML="";
+  for(const p of tpl.params) f.appendChild(Array.isArray(p.default)?arrayField(p):scalarField(p));
+}
+
+// ── import: fill the form from pasted script text ──────────────────────────
+//
+// The page never reads the clipboard itself. On file:// a browser hands out about one
+// clipboard read per document and then leaves later calls pending forever (measured in
+// Vivaldi; Firefox prompts on every read). A real Ctrl+V into a field works everywhere with
+// no prompt, so that is the mechanism and the button only reveals the field. Everything
+// below runs off the paste event.
+//
+// Flow: [Paste settings] -> field -> Ctrl+V -> values are applied, the lines they produced
+// light up and stay lit, the form locks -> a non-blocking bar in this panel asks to Confirm
+// or Decline. Confirm keeps the values; Decline restores the snapshot taken before the
+// paste. A paste whose values already match is still applied and highlighted — a paste is a
+// deliberate act, and it must respond either way. Reset and the script picker rebuild from
+// defaults, which discards a pending paste with it.
+
+let pending=null;                      // { before, applied, missing }
+const pasteRow=$("pasterow"), pasteBox=$("pastebox"), pendingBar=$("pending"), noteBox=$("note");
+
+function note(text){ noteBox.textContent=text||""; noteBox.classList.toggle("on", !!text); }
+function hidePaste(){ pasteRow.classList.remove("on"); pasteBox.value=""; }
+
+// Lock the parameter form only. Reset and the script picker stay usable — they rebuild the
+// form from defaults, so a pending paste is simply discarded rather than kept or reverted.
+function lockForm(on){
+  $("form").classList.toggle("locked", on);
+  document.querySelectorAll("#form input, #form select, #form button").forEach(c=>{ c.disabled=on; });
+}
+function releaseHeld(){ document.querySelectorAll("#out .ln.held").forEach(d=>d.classList.remove("held")); }
+function clearPending(){ pending=null; pendingBar.classList.remove("on"); lockForm(false); hidePaste(); }
+
+$("paste").addEventListener("click",()=>{
+  clearPending(); note("");
+  pasteRow.classList.add("on");
+  pasteBox.focus();
+});
+
+// The paste EVENT carries the whole text, so nothing is read from the field itself — it is
+// a single-line input and would lose everything after the first newline.
+pasteBox.addEventListener("paste", ev=>{
+  const text=(ev.clipboardData && ev.clipboardData.getData("text/plain")) || "";
+  ev.preventDefault();
+  if(text) applyPaste(text);
+});
+// Enter applies what the field holds, for input that arrived without a paste event.
+pasteBox.addEventListener("keydown", ev=>{
+  if(ev.key==="Enter"){ ev.preventDefault(); applyPaste(pasteBox.value); }
+  else if(ev.key==="Escape"){ ev.preventDefault(); hidePaste(); }   // closes the field only
+});
+
+function applyPaste(text){
+  const found=parseSettings(tpl, text);
+  const names=Object.keys(found);
+  if(!names.length){ hidePaste(); note("0 settings found in that text — nothing applied"); return; }
+
+  const before=JSON.parse(JSON.stringify(vals));
+  // `applied` = the parameters this text supplied, whether or not their value differs from
+  // what is shown: a paste is a deliberate act and must respond either way, so an identical
+  // paste still applies and still highlights.
+  const applied=[], missing=[];
+  for(const p of tpl.params){
+    if(names.indexOf(p.name)===-1){ missing.push(p.name); continue; }   // untouched, unflashed
+    applied.push(p.name);
+    const nv=found[p.name];
+    vals[p.name]=Array.isArray(nv)?nv.slice():nv;
+  }
+  hidePaste(); note("");
+
+  pending={before, applied, missing};
+  buildForm();                                   // show the incoming values
+  lockForm(true);                                // ...locked until answered
+  renderOut({names:applied, mode:"paste"});      // light them up, fit the run
+  showPending();
+}
+
+function showPending(){
+  const msg=$("pmsg");
+  msg.innerHTML="";
+  const b=document.createElement("b");
+  b.textContent=pending.applied.length+(pending.applied.length===1?" setting applied":" settings applied");
+  msg.append(b);
+  if(pending.missing.length){
+    const m=el("span","miss");
+    m.textContent=" · "+pending.missing.length+" not found ("+pending.missing.join(", ")+") — left unchanged";
+    msg.append(m);
+  }
+  msg.append(document.createTextNode(" — keep them?"));
+  pendingBar.classList.add("on");
+}
+
+$("pconfirm").addEventListener("click",()=>{
+  if(!pending) return;
+  const n=pending.applied.length;
+  clearPending();
+  releaseHeld();                                 // accepted: the highlight lets go
+  note(n+(n===1?" setting kept":" settings kept"));
+});
+
+$("pdecline").addEventListener("click",()=>{
+  if(!pending) return;
+  vals=pending.before;
+  clearPending();
+  buildForm();
+  renderOut(null);                               // rebuilt, so no held class survives
+  note("paste discarded — values restored");
+});
+
+// ── chrome: script selector (generic over TEMPLATES), reset, copy ──
+const sel=$("script");
+for(const [id,t] of Object.entries(TEMPLATES)){ const o=document.createElement("option"); o.value=id; o.textContent=t.title; sel.append(o); }
+sel.style.display=Object.keys(TEMPLATES).length>1?"":"none";
+sel.addEventListener("change",()=>load(sel.value));
+attachWheelStep(sel, "change");
+
+$("reset").addEventListener("click",()=>{ clearPending(); note(""); vals=defaults(tpl); buildForm(); renderOut(null); scrollPreviewTop(); });
+
+$("copy").addEventListener("click", async e=>{
+  const t=outText, b=e.currentTarget;
+  try{ await navigator.clipboard.writeText(t); }
+  catch(_){ const ta=el("textarea"); ta.value=t; document.body.append(ta); ta.select(); document.execCommand("copy"); ta.remove(); }
+  b.textContent="Copied ✓"; b.classList.add("copied");
+  setTimeout(()=>{ b.textContent="Copy to clipboard"; b.classList.remove("copied"); },1500);
+});
+
+// Switching script replaces everything at once (form, text, length), so the preview
+// snaps to the top in the same frame — an animated scroll would read as a stray glide.
+function load(id){ clearPending(); note(""); tpl=TEMPLATES[id]; vals=defaults(tpl); buildForm(); renderOut(null); $("out").scrollTop=0; }
+load(Object.keys(TEMPLATES)[0]);
+})();
+</script>
+</body>
+</html>
